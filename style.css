@@ -1,0 +1,174 @@
+h1{
+    color:#e6edf7;
+
+}
+
+body {
+    background-color: #0a111c;
+    color: #e6edf7;
+    margin: 0;
+}
+
+button{
+    color:rgb(0, 0, 0);
+    background-color: cyan;
+    border:none;
+    padding:10px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+p{
+    color:aqua;
+}
+
+.topbar{
+    padding:20px 24px;
+    display:flex;
+    align-items:center;
+    justify-content: space-between;
+
+    background-color: #111c2b;
+    border-bottom: 1px solid #26364a;
+}
+
+.status{
+    color:cyan;
+
+}
+
+
+.stats-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    padding: 24px;
+}
+
+.stat-card {
+    background-color: #111c2b;
+    border: 1px solid #26364a;
+    border-radius: 10px;
+    padding: 20px;
+}
+
+.stat-card p {
+    color: #94a3b8;
+    font-size: 14px;
+    margin: 0 0 12px;
+}
+
+.stat-card h3 {
+    color: #e6edf7;
+    font-size: 28px;
+    margin: 0;
+}
+
+.workspace{
+    display:grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    padding: 0 24px 24px;
+}
+
+.map-panel,.aircraft-panel{
+    background-color: #111c2b;
+    border: 1px solid #26364a;
+    border-radius:10px;
+    padding:20px;
+    min-height:400px;
+}
+
+.map-panel h2,.aircraft-panel h2{
+    color: #e6edf7;
+    font-size:18px;
+    margin-top:0;
+}
+
+.map-panel p,.aircraft-panel p{
+    color:#94a3b8;
+    font-size:14px;
+}
+
+@media (max-width: 768px){
+    .workspace{
+        grid-template-columns: 1fr;
+    }
+
+    .stats-bar{
+        grid-template-columns: repeat(2,1fr);
+    }
+
+    .topbar{
+        flex-wrap: wrap;
+        gap: 16px;
+    }
+}
+
+
+.aircraft-item {
+    padding: 14px 0;
+    border-bottom: 1px solid #26364a;
+}
+
+.aircraft-item h3 {
+    color: #22d3ee;
+    font-size: 16px;
+    margin: 0 0 6px;
+}
+
+.aircraft-item p {
+    margin: 0 0 8px;
+}
+
+.aircraft-item span {
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+
+.stats-bar {
+    padding-top: 24px;
+    padding-bottom: 24px;
+}
+
+.stat-card {
+    transition: border-color 0.2s ease;
+}
+
+.stat-card:hover {
+    border-color: #22d3ee;
+}
+
+
+.topbar button {
+    background-color: #22d3ee;
+    color: #0a111c;
+    font-weight: bold;
+    transition: background-color 0.2s ease;
+}
+
+.topbar button:hover {
+    background-color: #67e8f9;
+}
+
+
+.status h2 {
+    font-size: 12px;
+    letter-spacing: 1.5px;
+    margin: 0;
+}
+
+.brand h1 {
+    margin-bottom: 6px;
+}
+
+.brand p {
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    margin-top: 0;
+}

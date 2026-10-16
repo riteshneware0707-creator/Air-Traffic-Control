@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkyTrace Air Traffic Control</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    
+    <header class="topbar">
+        <div class="brand">
+            <h1>SkyTrace ATC</h1>
+            <p>AIRSPACE SURVEILLANCE SYSTEM</p>
+
+        </div>
+        <div class="status">
+            <h2>SYSTEM ONLINE</h2>
+        </div>
+    
+    <button id="refresh-btn">Refresh data</button>
+
+    <p id="system-message">System ready.</p>
+    </header>
+
+    <section class="stats-bar">
+        <div class="stat-card">
+            <p>Total Aircraft</p>
+            <h3 id="aircraft-count">128</h3>
+        </div>
+
+        <div class="stat-card">
+            <p>Airborne</p>
+            <h3>112</h3>
+        </div>
+
+        <div class="stat-card">
+            <p>On Ground</p>
+            <h3>16</h3>
+        </div>
+
+        <div class="stat-card">
+            <p>Average Speed</p>
+            <h3>246 kt</h3>
+        </div>
+    </section>
+
+    <main class="workspace">
+    <section class="map-panel">
+        <h2>Airspace map</h2>
+        <p>Aircraft tracking map will appear here</p>
+    </section>
+
+    
+<section class="aircraft-panel">
+    <h2>Aircraft List</h2>
+
+    <div class="aircraft-item">
+        <h3>AI 101</h3>
+        <p>Boeing 737</p>
+        <span>Altitude: FL350</span>
+    </div>
+
+    <div class="aircraft-item">
+        <h3>UK 820</h3>
+        <p>Airbus A320</p>
+        <span>Altitude: FL280</span>
+    </div>
+
+    <div class="aircraft-item">
+        <h3>6E 234</h3>
+        <p>Airbus A321</p>
+        <span>Altitude: FL320</span>
+    </div>
+</section>
+
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
