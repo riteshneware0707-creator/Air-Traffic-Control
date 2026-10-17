@@ -1,81 +1,262 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SkyTrace Air Traffic Control</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SkyTrace ATC — Air Traffic Monitoring</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Leaflet Draw CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    
-    <header class="topbar">
-        <div class="brand">
-            <h1>SkyTrace ATC</h1>
-            <p>AIRSPACE SURVEILLANCE SYSTEM</p>
 
+  <!-- ═══════════════════════════════════════════════ TOPBAR ═════════════════════════════════════════════════ -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon"><i class="fas fa-plane-departure"></i></div>
+      <div class="brand-text">
+        <h1>SkyTrace ATC</h1>
+        <p>AIRSPACE SURVEILLANCE SYSTEM</p>
+      </div>
+    </div>
+
+    <div class="topbar-center">
+      <div class="region-selector">
+        <label><i class="fas fa-globe"></i> Region</label>
+        <select id="region-select">
+          <option value="india">India</option>
+          <option value="europe">Europe</option>
+          <option value="usa">United States</option>
+          <option value="sea">South-East Asia</option>
+          <option value="world">World</option>
+          <option value="custom">Custom (draw on map)</option>
+        </select>
+      </div>
+      <div class="poll-bar-wrap" title="Next refresh countdown">
+        <div class="poll-label"><i class="fas fa-sync-alt" id="poll-spin-icon"></i> <span id="poll-countdown">15s</span></div>
+        <div class="poll-bar-track"><div id="poll-bar" class="poll-bar-fill"></div></div>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <div id="api-status" class="api-status online">
+        <span class="status-dot"></span><span id="status-text">LIVE</span>
+      </div>
+      <button id="refresh-btn" class="btn-refresh"><i class="fas fa-sync-alt"></i> Refresh</button>
+      <button id="filter-toggle" class="btn-filter" title="Toggle Filters"><i class="fas fa-sliders-h"></i></button>
+      <button id="alert-toggle" class="btn-alert" title="Alert Rules"><i class="fas fa-bell"></i> <span id="alert-badge" class="alert-badge hidden">0</span></button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════ API BANNER ════════════════════════════════════════════ -->
+  <div id="api-banner" class="api-banner hidden">
+    <i class="fas fa-exclamation-triangle"></i>
+    <span id="api-banner-msg">API unavailable — showing cached data</span>
+    <button onclick="document.getElementById('api-banner').classList.add('hidden')">✕</button>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ STATS BAR ════════════════════════════════════════════ -->
+  <section class="stats-bar">
+    <div class="stat-card" title="Total tracked aircraft">
+      <div class="stat-icon"><i class="fas fa-plane"></i></div>
+      <div class="stat-info">
+        <p>Total Aircraft</p>
+        <h3 id="stat-total">—</h3>
+      </div>
+    </div>
+    <div class="stat-card" title="Aircraft currently airborne">
+      <div class="stat-icon airborne"><i class="fas fa-plane-departure"></i></div>
+      <div class="stat-info">
+        <p>Airborne</p>
+        <h3 id="stat-airborne">—</h3>
+      </div>
+    </div>
+    <div class="stat-card" title="Aircraft on ground">
+      <div class="stat-icon ground"><i class="fas fa-plane-arrival"></i></div>
+      <div class="stat-info">
+        <p>On Ground</p>
+        <h3 id="stat-ground">—</h3>
+      </div>
+    </div>
+    <div class="stat-card" title="Average airspeed across all airborne aircraft">
+      <div class="stat-icon speed"><i class="fas fa-tachometer-alt"></i></div>
+      <div class="stat-info">
+        <p>Avg Speed</p>
+        <h3 id="stat-speed">— kt</h3>
+      </div>
+    </div>
+    <div class="stat-card" title="Average altitude of airborne aircraft">
+      <div class="stat-icon alt"><i class="fas fa-mountain"></i></div>
+      <div class="stat-info">
+        <p>Avg Altitude</p>
+        <h3 id="stat-alt">— ft</h3>
+      </div>
+    </div>
+    <div class="stat-card" title="Stale aircraft (not updated in 90 s+)">
+      <div class="stat-icon stale"><i class="fas fa-exclamation-circle"></i></div>
+      <div class="stat-info">
+        <p>Stale</p>
+        <h3 id="stat-stale">—</h3>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════ MAIN WORKSPACE ════════════════════════════════════════ -->
+  <main class="workspace">
+
+    <!-- FILTER PANEL (slides in from left) -->
+    <aside id="filter-panel" class="filter-panel hidden">
+      <div class="filter-header">
+        <h3><i class="fas fa-sliders-h"></i> Filters</h3>
+        <button id="filter-close"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="filter-body">
+        <div class="filter-group">
+          <label>Callsign Search</label>
+          <input id="filter-callsign" type="text" placeholder="e.g. AI101, 6E…" />
         </div>
-        <div class="status">
-            <h2>SYSTEM ONLINE</h2>
+        <div class="filter-group">
+          <label>Origin Country</label>
+          <select id="filter-country"><option value="">All countries</option></select>
         </div>
-    
-    <button id="refresh-btn">Refresh data</button>
-
-    <p id="system-message">System ready.</p>
-    </header>
-
-    <section class="stats-bar">
-        <div class="stat-card">
-            <p>Total Aircraft</p>
-            <h3 id="aircraft-count">128</h3>
+        <div class="filter-group">
+          <label>Min Altitude: <span id="alt-min-val">0</span> ft</label>
+          <input id="filter-alt-min" type="range" min="0" max="45000" step="500" value="0" />
         </div>
-
-        <div class="stat-card">
-            <p>Airborne</p>
-            <h3>112</h3>
+        <div class="filter-group">
+          <label>Max Altitude: <span id="alt-max-val">45000</span> ft</label>
+          <input id="filter-alt-max" type="range" min="0" max="45000" step="500" value="45000" />
         </div>
-
-        <div class="stat-card">
-            <p>On Ground</p>
-            <h3>16</h3>
+        <div class="filter-group">
+          <label>Min Speed: <span id="spd-min-val">0</span> kt</label>
+          <input id="filter-spd-min" type="range" min="0" max="700" step="10" value="0" />
         </div>
-
-        <div class="stat-card">
-            <p>Average Speed</p>
-            <h3>246 kt</h3>
+        <div class="filter-group toggle-group">
+          <label>On-Ground Only</label>
+          <label class="toggle"><input id="filter-ground" type="checkbox" /><span class="slider"></span></label>
         </div>
-    </section>
+        <div class="filter-group toggle-group">
+          <label>Hide Stale Aircraft</label>
+          <label class="toggle"><input id="filter-stale" type="checkbox" checked /><span class="slider"></span></label>
+        </div>
+        <button id="filter-reset" class="btn-secondary"><i class="fas fa-undo"></i> Reset Filters</button>
+      </div>
+    </aside>
 
-    <main class="workspace">
+    <!-- MAP PANEL -->
     <section class="map-panel">
-        <h2>Airspace map</h2>
-        <p>Aircraft tracking map will appear here</p>
+      <div id="map"></div>
+      <div id="map-overlay-hint" class="map-hint">
+        <i class="fas fa-draw-polygon"></i> Use the draw tool to select a custom region
+      </div>
+      <!-- Loading spinner over map -->
+      <div id="map-loading" class="map-loading">
+        <div class="spinner"></div><span>Fetching aircraft data…</span>
+      </div>
     </section>
 
-    
-<section class="aircraft-panel">
-    <h2>Aircraft List</h2>
+    <!-- AIRCRAFT LIST PANEL -->
+    <section class="aircraft-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-list"></i> Aircraft <span id="aircraft-list-count" class="count-badge">0</span></h2>
+        <div class="sort-controls">
+          <label>Sort</label>
+          <select id="sort-select">
+            <option value="callsign">Callsign</option>
+            <option value="altitude">Altitude ↓</option>
+            <option value="speed">Speed ↓</option>
+            <option value="lastseen">Last Seen</option>
+          </select>
+        </div>
+      </div>
+      <div id="aircraft-list" class="aircraft-list">
+        <div class="empty-state">
+          <i class="fas fa-satellite-dish fa-2x"></i>
+          <p>Awaiting aircraft data…</p>
+        </div>
+      </div>
+    </section>
 
-    <div class="aircraft-item">
-        <h3>AI 101</h3>
-        <p>Boeing 737</p>
-        <span>Altitude: FL350</span>
+  </main>
+
+  <!-- ═══════════════════════════════════════════════ DETAIL PANEL ══════════════════════════════════════════ -->
+  <aside id="detail-panel" class="detail-panel hidden">
+    <div class="detail-header">
+      <div class="detail-callsign">
+        <div id="detail-flag" class="detail-flag"></div>
+        <h2 id="detail-callsign-text">—</h2>
+        <span id="detail-icao" class="detail-icao">—</span>
+      </div>
+      <button id="detail-close"><i class="fas fa-times"></i></button>
     </div>
 
-    <div class="aircraft-item">
-        <h3>UK 820</h3>
-        <p>Airbus A320</p>
-        <span>Altitude: FL280</span>
+    <div class="detail-body">
+      <div class="detail-grid">
+        <div class="detail-stat"><span class="dstat-label"><i class="fas fa-mountain"></i> Altitude</span><span id="d-altitude" class="dstat-value">—</span></div>
+        <div class="detail-stat"><span class="dstat-label"><i class="fas fa-tachometer-alt"></i> Speed</span><span id="d-speed" class="dstat-value">—</span></div>
+        <div class="detail-stat"><span class="dstat-label"><i class="fas fa-compass"></i> Heading</span><span id="d-heading" class="dstat-value">—</span></div>
+        <div class="detail-stat"><span class="dstat-label"><i class="fas fa-arrows-alt-v"></i> Vert Rate</span><span id="d-vrate" class="dstat-value">—</span></div>
+        <div class="detail-stat"><span class="dstat-label"><i class="fas fa-globe"></i> Country</span><span id="d-country" class="dstat-value">—</span></div>
+        <div class="detail-stat"><span class="dstat-label"><i class="fas fa-broadcast-tower"></i> Squawk</span><span id="d-squawk" class="dstat-value">—</span></div>
+        <div class="detail-stat"><span class="dstat-label"><i class="fas fa-clock"></i> Last Seen</span><span id="d-lastseen" class="dstat-value">—</span></div>
+        <div class="detail-stat"><span class="dstat-label"><i class="fas fa-map-marker-alt"></i> Position</span><span id="d-position" class="dstat-value">—</span></div>
+      </div>
+
+      <div class="detail-section">
+        <h4><i class="fas fa-chart-line"></i> Altitude History</h4>
+        <canvas id="altitude-chart" width="300" height="100"></canvas>
+      </div>
+
+      <div class="detail-section">
+        <h4><i class="fas fa-route"></i> Flight Path Replay</h4>
+        <div class="replay-controls">
+          <button id="replay-btn" class="btn-secondary"><i class="fas fa-play"></i> Replay</button>
+          <button id="replay-stop" class="btn-secondary" disabled><i class="fas fa-stop"></i> Stop</button>
+          <label>Speed <select id="replay-speed"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option></select></label>
+        </div>
+        <p class="detail-note" id="replay-note">No history yet — data collected every 15 s</p>
+      </div>
     </div>
+  </aside>
 
-    <div class="aircraft-item">
-        <h3>6E 234</h3>
-        <p>Airbus A321</p>
-        <span>Altitude: FL320</span>
+  <!-- ═══════════════════════════════════════════════ ALERT PANEL ═══════════════════════════════════════════ -->
+  <aside id="alert-panel" class="alert-panel hidden">
+    <div class="filter-header">
+      <h3><i class="fas fa-bell"></i> Alert Rules</h3>
+      <button id="alert-panel-close"><i class="fas fa-times"></i></button>
     </div>
-</section>
+    <div class="filter-body">
+      <div class="filter-group">
+        <label><i class="fas fa-mountain"></i> Altitude below (ft)</label>
+        <input id="alert-alt-min" type="number" value="1000" min="0" max="50000" />
+      </div>
+      <div class="filter-group">
+        <label><i class="fas fa-tachometer-alt"></i> Speed above (kt)</label>
+        <input id="alert-spd-max" type="number" value="600" min="0" max="1000" />
+      </div>
+      <div class="filter-group toggle-group">
+        <label>Alert on Region Entry/Exit</label>
+        <label class="toggle"><input id="alert-boundary" type="checkbox" checked /><span class="slider"></span></label>
+      </div>
+      <div class="filter-group toggle-group">
+        <label>Enable Alert System</label>
+        <label class="toggle"><input id="alert-enabled" type="checkbox" checked /><span class="slider"></span></label>
+      </div>
+    </div>
+  </aside>
 
-    </main>
+  <!-- ═══════════════════════════════════════════════ TOAST CONTAINER ════════════════════════════════════════ -->
+  <div id="toast-container" class="toast-container"></div>
 
-    <script src="script.js"></script>
+  <!-- ═══════════════════════════════════════════════ SCRIPTS ═══════════════════════════════════════════════ -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
