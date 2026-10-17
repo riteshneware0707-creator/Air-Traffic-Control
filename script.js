@@ -16,14 +16,14 @@
    1. CONFIG
    ══════════════════════════════════════════════════════════════ */
 const CONFIG = {
-  // OpenSky primary endpoint; CORS proxy for browser use
   API_BASE: 'https://opensky-network.org/api',
-  PROXY:    'https://corsproxy.io/?',   // prefixed when CORS needed
+  LOCAL_PROXY: '/api/states/all',
+  LOCAL_SERVER_URL: 'http://localhost:3000/api/states/all',
   POLL_INTERVAL_MS:  15000,             // 15 s — respects OpenSky's ~10 s state cadence
   STALE_THRESHOLD_MS: 90000,            // 90 s  → mark stale
   REMOVE_THRESHOLD_MS: 300000,          // 5 min → remove from store
   MAX_HISTORY: 20,                      // observations per aircraft
-  MAX_RETRIES: 3,
+  MAX_RETRIES: 2,
   CIRCUIT_BREAK_AFTER: 3,              // failures before circuit opens
   CIRCUIT_RESET_MS: 60000,             // 60 s circuit reset
 };
@@ -202,92 +202,118 @@ const store = {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   3. API
+   3. API & DATA PIPELINE
    ══════════════════════════════════════════════════════════════ */
 const api = (() => {
-  let failureCount  = 0;
-  let circuitOpen   = false;
-  let circuitTimer  = null;
+  let simulatedFlights = null;
   const CACHE_KEY   = 'skytrace_last_response';
 
-  function openCircuit() {
-    circuitOpen = true;
-    ui.setStatus('offline');
-    ui.showBanner('Circuit breaker open — API unreachable. Using cached data. Retrying in 60 s.');
-    circuitTimer = setTimeout(() => {
-      circuitOpen   = false;
-      failureCount  = 0;
-      ui.toast('🔄 Reconnecting to OpenSky API…', 'info');
-    }, CONFIG.CIRCUIT_RESET_MS);
+  // Realistic movement simulation for fallback data
+  function getSimulatedStates(minLat, minLon, maxLat, maxLon) {
+    if (!simulatedFlights && typeof RECORDED_STATES !== 'undefined') {
+      simulatedFlights = JSON.parse(JSON.stringify(RECORDED_STATES));
+    }
+    if (!simulatedFlights) return [];
+
+    const now = Math.floor(Date.now() / 1000);
+
+    return simulatedFlights.filter(sv => {
+      let lon = sv[5];
+      let lat = sv[6];
+      if (lat == null || lon == null) return false;
+
+      // Update positions dynamically between 15s polls
+      if (!sv[8] && sv[9] && sv[10] != null) {
+        const dt = 15; // 15 seconds forward
+        const speed = sv[9]; // m/s
+        const dist = speed * dt;
+        const R = 6371000;
+        const rad = Math.PI / 180;
+        const deg = 180 / Math.PI;
+
+        const phi1 = lat * rad;
+        const lam1 = lon * rad;
+        const theta = sv[10] * rad;
+        const delta = dist / R;
+
+        const phi2 = Math.asin(Math.sin(phi1)*Math.cos(delta) + Math.cos(phi1)*Math.sin(delta)*Math.cos(theta));
+        const lam2 = lam1 + Math.atan2(Math.sin(theta)*Math.sin(delta)*Math.cos(phi1), Math.cos(delta) - Math.sin(phi1)*Math.sin(phi2));
+
+        sv[6] = +(phi2 * deg).toFixed(5);
+        sv[5] = +(lam2 * deg).toFixed(5);
+
+        if (sv[11]) {
+          sv[7] = Math.max(100, (sv[7] || 10000) + sv[11] * dt);
+        }
+      }
+
+      sv[3] = now;
+      sv[4] = now;
+
+      return sv[6] >= minLat && sv[6] <= maxLat && sv[5] >= minLon && sv[5] <= maxLon;
+    });
   }
 
-  async function fetchWithRetry(url, retries = CONFIG.MAX_RETRIES) {
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-        if (resp.status === 429) {
-          ui.toast('⏳ Rate limited — backing off 60 s', 'warning');
-          ui.setStatus('cached');
-          await delay(60000);
-          continue;
-        }
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return await resp.json();
-      } catch (err) {
-        if (attempt === retries) throw err;
-        await delay(1000 * Math.pow(2, attempt));
-      }
+  async function fetchWithTimeout(url, ms = 5000) {
+    const ctrl = new AbortController();
+    const id = setTimeout(() => ctrl.abort(), ms);
+    try {
+      const resp = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(id);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await resp.json();
+    } catch (e) {
+      clearTimeout(id);
+      throw e;
     }
   }
-
-  async function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   async function fetchAircraft() {
-    if (circuitOpen) {
-      return loadCache();
-    }
-
     const [minLat, minLon, maxLat, maxLon] = store.activeBbox();
-    const url = `${CONFIG.API_BASE}/states/all?lamin=${minLat}&lomin=${minLon}&lamax=${maxLat}&lomax=${maxLon}`;
-    const proxyUrl = `${CONFIG.PROXY}${encodeURIComponent(url)}`;
+    const query = `lamin=${minLat}&lomin=${minLon}&lamax=${maxLat}&lomax=${maxLon}`;
 
-    try {
-      // Try direct first (works if browser has no CORS restriction or user is authenticated)
-      let data;
-      try {
-        data = await fetchWithRetry(url);
-      } catch (_) {
-        // Fall back to proxy
-        data = await fetchWithRetry(proxyUrl);
-      }
-
-      if (!data || !data.states) {
-        // API returned but no states (e.g. empty region or auth issue) — use cache
-        const cached = loadCache();
-        if (cached) { ui.setStatus('cached'); return cached; }
-        return { states: [], time: Math.floor(Date.now()/1000) };
-      }
-
-      // Success — persist to localStorage cache
-      saveCache(data);
-      failureCount  = 0;
-      circuitOpen   = false;
-      ui.setStatus('online');
-      ui.hideBanner();
-      return data;
-
-    } catch (err) {
-      failureCount++;
-      console.warn(`[API] Fetch failed (${failureCount}/${CONFIG.CIRCUIT_BREAK_AFTER}):`, err.message);
-
-      if (failureCount >= CONFIG.CIRCUIT_BREAK_AFTER) {
-        openCircuit();
-      } else {
-        ui.setStatus('offline');
-        ui.showBanner(`API error: ${err.message}. Showing cached data.`);
-      }
-      return loadCache() || { states: [], time: Math.floor(Date.now()/1000) };
+    // Endpoint candidates:
+    // 1. Same-origin proxy (if running via node server.js on localhost:3000)
+    // 2. Direct localhost:3000 proxy
+    // 3. Direct OpenSky (works if browser permits or when authenticated)
+    const candidates = [];
+    if (window.location.protocol.startsWith('http')) {
+      candidates.push({ url: `${CONFIG.LOCAL_PROXY}?${query}`, type: 'proxy' });
     }
+    candidates.push({ url: `${CONFIG.LOCAL_SERVER_URL}?${query}`, type: 'proxy' });
+    candidates.push({ url: `${CONFIG.API_BASE}/states/all?${query}`, type: 'direct' });
+
+    for (const candidate of candidates) {
+      try {
+        const data = await fetchWithTimeout(candidate.url, 4000);
+        if (data && Array.isArray(data.states)) {
+          saveCache(data);
+          ui.setStatus(candidate.type === 'proxy' ? 'proxy' : 'online');
+          ui.hideBanner();
+          return data;
+        }
+      } catch (_) {
+        // Continue to next candidate
+      }
+    }
+
+    // Fallback: Realistic recorded OpenSky flight dataset with simulation
+    const simStates = getSimulatedStates(minLat, minLon, maxLat, maxLon);
+    if (simStates.length > 0) {
+      ui.setStatus('cached');
+      ui.showBanner('Offline / CORS Fallback: Displaying realistic recorded OpenSky flight data. Run "node server.js" for live API feed.');
+      return { states: simStates, time: Math.floor(Date.now() / 1000) };
+    }
+
+    // Last resort: cached data from localStorage
+    const cached = loadCache();
+    if (cached) {
+      ui.setStatus('cached');
+      return cached;
+    }
+
+    ui.setStatus('offline');
+    return { states: [], time: Math.floor(Date.now() / 1000) };
   }
 
   function saveCache(data) {
@@ -301,8 +327,7 @@ const api = (() => {
       const raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
       const { ts, data } = JSON.parse(raw);
-      const ageMin = (Date.now() - ts) / 60000;
-      if (ageMin > 60) { localStorage.removeItem(CACHE_KEY); return null; } // stale cache
+      if ((Date.now() - ts) > 1800000) return null; // 30 min cache
       return data;
     } catch(_) { return null; }
   }
@@ -347,11 +372,37 @@ const mapModule = (() => {
       preferCanvas: true,
     });
 
-    // Dark CartoDB tiles (free, no key needed)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/">CARTO</a>',
-      subdomains: 'abcd', maxZoom: 19,
-    }).addTo(map);
+    // Base tile layers (NO API KEY REQUIRED, NO ACCESS BLOCKED)
+    const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19
+    });
+
+    const esriDark = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+      maxZoom: 16
+    });
+
+    const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19
+    });
+
+    // Default to CARTO Dark Matter
+    cartoDark.addTo(map);
+
+    // Add layer switcher control
+    L.control.layers({
+      'Dark Matter (Default)': cartoDark,
+      'ESRI Dark Gray': esriDark,
+      'Positron Light': cartoLight
+    }, null, { position: 'topright' }).addTo(map);
+
+    // Invalidate size to ensure map fills container properly
+    setTimeout(() => { map.invalidateSize(); }, 200);
+    window.addEventListener('resize', () => { map.invalidateSize(); });
 
     // Leaflet Draw
     const drawnItems = new L.FeatureGroup().addTo(map);
@@ -730,11 +781,15 @@ const ui = (() => {
   }
 
   // ── Status / Banner ─────────────────────────────────────────
-  function setStatus(mode) {  // 'online' | 'offline' | 'cached'
+  function setStatus(mode) {  // 'online' | 'proxy' | 'offline' | 'cached'
     const s    = el('api-status');
     const text = el('status-text');
-    s.className = `api-status ${mode}`;
-    text.textContent = mode === 'online' ? 'LIVE' : mode === 'cached' ? 'CACHED' : 'OFFLINE';
+    if (!s || !text) return;
+    s.className = `api-status ${mode === 'proxy' ? 'online' : mode}`;
+    if (mode === 'online') text.textContent = 'LIVE OPENSKY';
+    else if (mode === 'proxy') text.textContent = 'LOCAL PROXY';
+    else if (mode === 'cached') text.textContent = 'RECORDED / DEMO';
+    else text.textContent = 'OFFLINE';
   }
   function showBanner(msg) {
     el('api-banner-msg').textContent = msg;

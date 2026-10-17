@@ -4,9 +4,22 @@ A real-time air traffic monitoring dashboard built with vanilla JavaScript, Leaf
 
 ---
 
-## Live Demo
+## How to Run
 
-Open `index.html` in Chrome, Edge, or Firefox. No server needed.
+### Method 1: Recommended (Live OpenSky API with Local Proxy)
+Because OpenSky restricts browser CORS requests from arbitrary client origins, a lightweight zero-dependency Node proxy server is included:
+```bash
+node server.js
+```
+Then open **[http://localhost:3000](http://localhost:3000)** in your browser.
+- Fetches real-time live aircraft from OpenSky Network
+- In-memory 10-second cache prevents HTTP 429 rate limits
+- Safely handles optional credentials via `OPENSKY_USERNAME` & `OPENSKY_PASSWORD` environment variables without exposing them in frontend code
+
+### Method 2: Instant Preview / Offline Mode
+Double-click **`index.html`** in File Explorer to open directly in Chrome, Edge, or Firefox.
+- Automatically connects to `http://localhost:3000` if the proxy is running
+- If opened standalone offline without a server, it automatically activates the **curated recorded OpenSky dataset** (140+ real flights) with dynamic dead-reckoning simulation, so the map, aircraft, trails, telemetry, filters, and alerts work 100% interactively!
 
 ---
 
